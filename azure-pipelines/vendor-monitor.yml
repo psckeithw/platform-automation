@@ -1,0 +1,180 @@
+# Azure DevOps pipeline: platform-automation / VendorMonitor.
+#
+# Runs the same tasks/VendorMonitor/Run.ps1 that runs locally. The
+# pipeline is orchestration only: it owns the schedule, parameters,
+# checkout, run, artifact publish, and the commit/push of the
+# updated state file to the dedicated `vendor-state` branch.
+# All business logic lives in PowerShell (Run.ps1 + modules + tasks).
+#
+# State model (plan §J / §Q1):
+#   * `state/vendor-state.json` is committed to a dedicated
+#     `vendor-state` branch, not to main, so main's history is not
+#     polluted and no branch-policy friction is introduced.
+#   * The pipeline checks out main with persistCredentials: true,
+#     pulls the previous state file from vendor-state, runs Run.ps1
+#     (which reads it), publishes the updated state as an artifact
+#     for inspection, and finally commits/pushes it back to
+#     vendor-state with `[skip ci]` so the push does not retrigger
+#     this pipeline.
+#   * The first run on a fresh repo has no state file on the branch
+#     -> Run.ps1 sees a cold start and writes a baseline. Nothing
+#     is reported as NEW on day one (avoids the alert storm in
+#     plan §Q1).
+#
+# Admin prerequisites (see docs/branch-permissions-runbook.md):
+#   1. The `vendor-state` branch exists (T5.2).
+#   2. The Project Build Service identity has Contribute on the
+#      repo (so the pipeline can push to vendor-state).
+#   3. main's policies are not affected because vendor-state is the
+#      only branch the pipeline writes to.
+
+trigger: none
+
+schedules:
+  - cron: "0 6 * * *"
+    displayName: Daily 06:00 UTC
+    branches:
+      include:
+        - main
+    always: true
+
+parameters:
+  - name: vendor
+    displayName: Vendor
+    type: string
+    default: All
+    values:
+      - All
+      - RLDatix
+  - name: forceRecheck
+    displayName: Force recheck (re-emit every record; still updates state)
+    type: boolean
+    default: false
+
+variables:
+  - name: stateBranch
+    value: vendor-state
+  - name: outputDir
+    value: $(Build.ArtifactStagingDirectory)/output
+  - name: stateFile
+    value: state/vendor-state.json
+
+stages:
+  - stage: Run
+    displayName: Vendor Monitor
+    jobs:
+      - job: VendorMonitor
+        displayName: Vendor Monitor
+        pool:
+          vmImage: ubuntu-latest
+
+        steps:
+          - checkout: self
+            displayName: Checkout (main)
+            persistCredentials: true
+
+          - pwsh: |
+              $branch = "${{ variables.stateBranch }}"
+              $path = "${{ variables.stateFile }}"
+              Write-Host "Fetching prior state from branch '$branch'..."
+              git fetch origin $branch --depth=1 2>$null
+              $tmp = New-TemporaryFile
+              # Try to read the prior state. If the branch or file
+              # does not exist (cold start), do nothing - Run.ps1
+              # will treat the run as a baseline.
+              $rc = (git show "origin/$branch`:$path" 2>$null | Tee-Object -FilePath $tmp.FullName)
+              if ($LASTEXITCODE -eq 0) {
+                New-Item -ItemType Directory -Path (Split-Path -Path $path -Parent) -Force | Out-Null
+                Move-Item -LiteralPath $tmp.FullName -Destination $path -Force
+                Write-Host "Restored prior state to $path"
+              }
+              else {
+                Write-Host "No prior state on $branch (cold start). Run.ps1 will baseline."
+                Remove-Item -LiteralPath $tmp.FullName -Force
+              }
+              # Configure git identity for the commit step.
+              git config user.email "azure-pipelines@$(System.CollectionId)"
+              git config user.name "Azure Pipelines"
+            displayName: Fetch prior state from ${{ variables.stateBranch }}
+
+          - pwsh: |
+              $vendorArg = @()
+              if ("${{ parameters.vendor }}" -ne "All") {
+                $vendorArg = @("-Vendor", "${{ parameters.vendor }}")
+              }
+              $forceArg = @()
+              if ("${{ parameters.forceRecheck }}" -eq "True") {
+                $forceArg = @("-ForceRecheck")
+              }
+              $argList = @(
+                "-NoProfile"
+                "-File", "./tasks/VendorMonitor/Run.ps1"
+                "-ConfigPath", "./config/vendors.json"
+                "-SettingsPath", "./config/settings.json"
+                "-OutputPath", "${{ variables.outputDir }}"
+                "-StatePath", "./state"
+              ) + $vendorArg + $forceArg
+              & pwsh @argList
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            displayName: Run VendorMonitor
+            continueOnError: false
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish run artifacts
+            condition: always()
+            inputs:
+              targetPath: $(outputDir)
+              artifact: platform-automation-output
+              publishLocation: pipeline
+
+          - task: PublishPipelineArtifact@1
+            displayName: Publish state (for inspection)
+            condition: always()
+            inputs:
+              targetPath: $(stateFile)
+              artifact: platform-automation-state
+              publishLocation: pipeline
+
+          - pwsh: |
+              $branch = "${{ variables.stateBranch }}"
+              $path = "${{ variables.stateFile }}"
+              if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+                Write-Host "No state file at $path; nothing to commit."
+                exit 0
+              }
+
+              # Stash the new state so it survives the branch switch.
+              $tmpState = New-TemporaryFile
+              Move-Item -LiteralPath $path -Destination $tmpState.FullName -Force
+
+              # Ensure origin has refs for the state branch. If the
+              # admin runbook (T5.2) hasn't created it yet, this is
+              # the very first run - create the branch from main.
+              git fetch origin $branch 2>$null
+              $hasBranch = ($LASTEXITCODE -eq 0)
+              if (-not $hasBranch) {
+                Write-Host "Branch '$branch' does not exist on origin; creating it from main."
+                git checkout -b $branch
+              }
+              else {
+                git checkout $branch
+              }
+
+              # Restore the new state into the branch's working tree.
+              New-Item -ItemType Directory -Path (Split-Path -Path $path -Parent) -Force | Out-Null
+              Move-Item -LiteralPath $tmpState.FullName -Destination $path -Force
+              git add $path
+              $status = git status --porcelain $path
+              if (-not $status) {
+                Write-Host "State unchanged; nothing to commit."
+              }
+              else {
+                git commit -m "chore(state): vendor monitor update [skip ci]" | Out-Null
+                git push origin $branch
+                Write-Host "Pushed updated state to $branch."
+              }
+
+              # Return to main so any post-step sees the expected branch.
+              git checkout main
+            displayName: Commit updated state to ${{ variables.stateBranch }}
+            condition: always()
