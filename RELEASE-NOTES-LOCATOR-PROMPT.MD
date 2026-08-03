@@ -420,3 +420,72 @@ Most likely monitoring priority order:
 6. Public RLDatix knowledge bases
 
 The GRC support portal is currently the strongest lead and should receive the majority of research effort.
+
+---
+
+# Auth Investigation Findings
+
+## grc-support.rldatix.com
+
+All probed endpoints return **HTTP 401** or redirect to a sign-in page:
+
+```text
+/api/v2/help_center/categories.json       → 401
+/api/v2/help_center/sections.json        → 401
+/api/v2/help_center/articles.json        → 401
+/api/v2/help_center/articles/search.json → 401
+/rss                                     → HTML login page
+/feed                                    → HTML login page
+```
+
+Portal behavior:
+- Returns an HTML sign-in page ("Sign in to Governance, Risk & Compliance").
+- SSO options visible: Converge, PX & Growth (SocialClimb).
+- No anonymous/anonymous-readable content observed.
+- All content is behind authentication; no public article or category data is accessible.
+
+Decision required:
+1. Does AHA hold active subscription credentials for this portal?
+2. Are SSO credentials (Converge / SocialClimb) available to the automation system?
+3. If yes, what is the mechanism: session cookie, API token, bearer token?
+4. Is there a rate-limit or terms-of-service restriction on automated polling?
+
+The Zendesk Help Center API v2 endpoints are the correct structure once auth is resolved, but they are unusable without valid credentials.
+
+---
+
+## support.intelligentcontract.com
+
+Release notes are accessible via the public discussion/forum pages without login:
+
+```text
+https://support.intelligentcontract.com/support/discussions/22000044599  → public HTML
+https://support.intelligentcontract.com/support/discussions/topics/22000016773 → public HTML
+```
+
+Discovery:
+- No API token or auth required to read forum topics.
+- A `search.json` endpoint returns `[]` (empty), but direct topic URLs return structured HTML.
+- No RSS or Atom feeds found (both return 404).
+- This source is currently machine-readable only via HTML scraping.
+
+Machine-readability assessment:
+- Structured HTML, not JSON. Regex or HTML parser required.
+- Topic IDs are numeric and stable (`22000044599` style).
+- No authenticated API discovered; all probing returned 406/404/empty results.
+
+---
+
+# Current Overall Assessment
+
+| Source | Auth Required | Machine-Readable | Recommended Next Step |
+|---|---|---|---|
+| grc-support.rldatix.com | Yes | Yes (Zendesk API v2) | Obtain AHA credentials / SSO mapping |
+| support.intelligentcontract.com | No | Partial (HTML) | Implement HTML scraper for topic pages |
+| RLDatix public marketing sites | No | No | Not viable for release monitoring |
+
+Updated monitoring priority order:
+
+1. `grc-support.rldatix.com` (blocked on auth — highest value once resolved)
+2. `support.intelligentcontract.com` discussions (no auth, HTML-scrape viable)
+3. Public RLDatix knowledge bases (not viable for release notes)
