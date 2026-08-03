@@ -1,0 +1,17 @@
+{
+  "Http": {
+    "UserAgent": "platform-automation/1.0",
+    "TimeoutSec": 30,
+    "Retries": 3
+  },
+  "Collector": {
+    "MaxPages": 3
+  },
+  "Output": {
+    "CaptureRawHtml": true,
+    "MaxRawItems": 5
+  },
+  "Run": {
+    "BaselineOnColdStart": true
+  }
+}
