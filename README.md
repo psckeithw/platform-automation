@@ -76,5 +76,89 @@ Append an entry to `config/vendors.json` with `collector: "ZendeskApi"` (or a fu
 
 ---
 
+## Local development
+
+### Prerequisites
+- PowerShell 7+ (`pwsh`). On Linux/macOS: `brew install --cask powershell` or
+  follow <https://learn.microsoft.com/powershell/scripting/install/installing-powershell>.
+- Outbound HTTPS to the configured vendor endpoints (RLDatix/Zendesk by
+  default).
+
+### Run the task locally
+
+From the repo root:
+
+```bash
+pwsh -NoProfile -File ./tasks/VendorMonitor/Run.ps1 \
+  -ConfigPath  ./config/vendors.json \
+  -SettingsPath ./config/settings.json \
+  -OutputPath  ./output \
+  -StatePath   ./state \
+  -Baseline
+```
+
+- First run (cold start, or with `-Baseline`) records the current set of
+  items and reports nothing as NEW.
+- Subsequent runs without `-Baseline` report `NEW` / `CHANGED` /
+  `UNCHANGED` against `state/vendor-state.json`.
+- `-Vendor <Name>` runs a single vendor. `-ForceRecheck` re-emits every
+  item (state is still updated so the run is safe to schedule).
+
+### Add a vendor
+
+Append an entry to `config/vendors.json`:
+
+```json
+{
+  "Vendor": "RLDatix",
+  "Enabled": true,
+  "Collector": "ApiCollector",
+  "Products": [
+    {
+      "Product": "PolicyStat",
+      "Url": "https://rldatix-public.zendesk.com/api/v2/help_center/en-us/sections/10457658046492/articles.json?sort_by=created_at&sort_order=desc&per_page=100",
+      "ItemsPath": "articles",
+      "FieldMap": {
+        "Id": "id",
+        "Title": "title",
+        "PublishedDate": "created_at",
+        "SourceUrl": "html_url",
+        "RawBody": "body"
+      }
+    }
+  ]
+}
+```
+
+No code or pipeline change. The generic `ApiCollector` reads `Url`,
+`ItemsPath`, and `FieldMap` from the config. Set `Enabled: false` to
+suspend a vendor without removing it.
+
+### Where artifacts land
+
+After every run, `output/` contains:
+
+| File | Purpose |
+| --- | --- |
+| `VendorReport.json` | Structured `{ generatedAt, summary, items[] }` — the machine-readable report. |
+| `VendorReport.md`   | Human report: run header, counts, NEW/CHANGED table with Vendor/Product/Published/Title/Status/URL + short excerpt. |
+| `*.html`            | Optional raw captures (up to `settings.Output.MaxRawItems`) for traceability. |
+| `ExecutionLog.txt`  | Full run log: start/end, duration, per-vendor HTTP status, errors, summary. |
+
+`state/vendor-state.json` holds the SHA-256-keyed change-detection
+state. It is committed to the `vendor-state` branch by the pipeline
+(plan §J / §Q1) so the next run has something to diff against.
+
+### Pipeline
+
+`azure-pipelines/vendor-monitor.yml` runs the same `Run.ps1` on a daily
+schedule (`0 6 * * *` UTC) and on demand. The pipeline reads/writes
+`state/vendor-state.json` on the `vendor-state` branch and publishes
+`output/` as the `platform-automation-output` artifact. See
+`docs/mvp-supplemental-plan.md` §J for full pipeline behavior.
+
+---
+
 ## Changelog
 - 2026-08-02 — Added architecture brief, implementation-ready supplemental plan (`docs/mvp-supplemental-plan.md`), and this handoff README. No code yet; ready for implementation.
+- 2026-08-02 — Local development section (run locally, add a vendor, where artifacts land) and coding standards. T0.1–T0.3.
