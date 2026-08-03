@@ -2,12 +2,14 @@
 *.ps1.xml
 *.psm1.xml
 
-# Generated artifacts
-# output/ is gitignored except for the tracked .gitkeep placeholder
-# state/ is intentionally NOT ignored — state/vendor-state.json is committed
-# to the dedicated `vendor-state` branch by the pipeline (plan §J / §Q1).
+# Generated artifacts.
+# output/ contents are gitignored except for the tracked .gitkeep
+# placeholder. state/vendor-state.json is also a generated artifact
+# on the dev branch; the pipeline commits it to the dedicated
+# `vendor-state` branch (plan §J / §Q1).
 output/*
 !output/.gitkeep
+state/vendor-state.json
 
 # Kilo tooling
 .kilo/worktrees/
