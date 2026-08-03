@@ -22,3 +22,4 @@ state/vendor-state.json
 .idea/
 *.user
 *.suo
+.env
