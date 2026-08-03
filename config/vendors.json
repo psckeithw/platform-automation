@@ -1,0 +1,23 @@
+{
+  "Vendors": [
+    {
+      "Vendor": "RLDatix",
+      "Enabled": true,
+      "Collector": "ApiCollector",
+      "Products": [
+        {
+          "Product": "IntelligentContract",
+          "Url": "https://rldatix-public.zendesk.com/api/v2/help_center/en-us/sections/19851648629532/articles.json?sort_by=created_at&sort_order=desc&per_page=100",
+          "ItemsPath": "articles",
+          "FieldMap": {
+            "Id": "id",
+            "Title": "title",
+            "PublishedDate": "created_at",
+            "SourceUrl": "html_url",
+            "RawBody": "body"
+          }
+        }
+      ]
+    }
+  ]
+}
