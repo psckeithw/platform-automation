@@ -51,7 +51,7 @@ function Import-Framework {
     foreach ($name in $modules) {
         $path = Join-Path -Path $ModulesPath -ChildPath $name
         if (Test-Path -LiteralPath $path -PathType Leaf) {
-            Import-Module -Name $path -Force -ErrorAction Stop
+            Import-Module -Name $path -Force -Global -ErrorAction Stop
         }
     }
 }
