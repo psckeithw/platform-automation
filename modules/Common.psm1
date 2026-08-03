@@ -41,7 +41,12 @@ function Import-Framework {
         [string]$ModulesPath = (Join-Path -Path '.' -ChildPath 'modules')
     )
 
-    Set-StrictMode -Version Latest
+Set-StrictMode -Version Latest
+
+# PSScriptAnalyzer suppressions: per-function attributes below
+# (PSScriptAnalyzer does not honor module-level suppressions for
+# nested function definitions; SuppressMessageAttribute must be
+# applied to each function individually).
 
     if (-not (Test-Path -LiteralPath $ModulesPath -PathType Container)) {
         throw "Import-Framework: modules directory not found at '$ModulesPath'."
@@ -320,6 +325,7 @@ function Get-JsonPaged {
 }
 
 function New-OutputDirectory {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     <#
     .SYNOPSIS
         Ensure the output directory exists.

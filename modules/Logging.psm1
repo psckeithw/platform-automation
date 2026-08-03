@@ -1,4 +1,21 @@
-Set-StrictMode -Version Latest
+﻿Set-StrictMode -Version Latest
+
+# PSScriptAnalyzer suppressions (file-level rationale):
+#   PSAvoidUsingWriteHost - we deliberately use Write-Host for ADO
+#     logging commands (##[section], ##vso[task.logissue ...],
+#     ##vso[task.addattachment ...]). These must reach the host
+#     stream, not the output stream, so the pipeline UI can pick
+#     them up. The same lines also carry a fallback Write-Error /
+#     Write-Warning for the operator.
+#   PSUseShouldProcessForStateChangingFunctions - Start-TaskLog and
+#     Stop-TaskLog are framework-internal, not user-facing, and
+#     ShouldProcess would add no value to a script entry point.
+#   PSAvoidOverwritingBuiltInCmdlets - Write-Log is the name
+#     chosen by the plan; renaming to avoid the built-in
+#     (PowerShell 6.1+) would break the documented public API.
+# SuppressMessageAttribute is applied per function below because
+# PSScriptAnalyzer does not honor module-level suppressions for
+# nested function definitions.
 
 <#
 .SYNOPSIS
@@ -66,6 +83,8 @@ function Format-LogLine {
 }
 
 function Start-TaskLog {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     <#
     .SYNOPSIS
         Begin a new run: initialize log state and emit the start line.
@@ -99,6 +118,7 @@ function Start-TaskLog {
 }
 
 function Write-Log {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
     <#
     .SYNOPSIS
         Write a structured log entry.
@@ -180,7 +200,7 @@ function Write-VendorResultLine {
         [long]$DurationMs = 0,
         [ValidateSet('INFO','WARN','ERROR')]
         [string]$Level = 'INFO',
-        [string]$Error
+        [string]$ErrorMessage
     )
     $parts = @(
         "vendor=$Vendor",
@@ -190,11 +210,12 @@ function Write-VendorResultLine {
         "count=$Count",
         "durationMs=$DurationMs"
     )
-    if ($Error) { $parts += "error=$Error" }
+    if ($ErrorMessage) { $parts += "error=$ErrorMessage" }
     Write-Log -Message ($parts -join ' ') -Level $Level
 }
 
 function Add-RunSummary {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
     <#
     .SYNOPSIS
         Attach a Markdown report to the Azure DevOps run summary tab.
@@ -227,6 +248,8 @@ function Add-RunSummary {
 }
 
 function Stop-TaskLog {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
     <#
     .SYNOPSIS
         End a run: emit the end line, flush the log buffer, return

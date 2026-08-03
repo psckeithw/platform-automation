@@ -7,6 +7,9 @@
 # Optional: -KeepArtifacts  to leave the test output/state dirs
 #          behind instead of removing them on success.
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '')]
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '')]
 [CmdletBinding()]
 param(
     [switch]$KeepArtifacts
@@ -15,13 +18,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Reference the parameter at the top of the script so PSScriptAnalyzer
+# does not warn about it being unused (it is consumed by Remove-TestDir
+# below; the analyzer does not trace across function boundaries).
+[void]$KeepArtifacts
+
 $repoRoot = (Resolve-Path -Path '.').Path
 $outDir   = Join-Path -Path '/tmp' -ChildPath 'kilo-e2e-output'
 $stateDir = Join-Path -Path '/tmp' -ChildPath 'kilo-e2e-state'
 $config   = Join-Path -Path $repoRoot -ChildPath 'config/vendors.json'
 $settings = Join-Path -Path $repoRoot -ChildPath 'config/settings.json'
 
-function Remove-TestDirs {
+function Remove-TestDir {
     if ($KeepArtifacts) { return }
     Remove-Item -LiteralPath $outDir -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $stateDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -61,7 +69,7 @@ function Add-Result {
 
 try {
     # ---------- Scenario 1: cold start = baseline ----------
-    Remove-TestDirs
+    Remove-TestDir
     $rc = Invoke-Run -ExtraArgs @('-Baseline')
     $sum = Read-Summary
     $ok1 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.items -eq 105) -and ($sum.summary.counts.baseline -eq 105) -and ($sum.summary.counts.new -eq 0) -and ($sum.summary.counts.errors -eq 0)
@@ -152,7 +160,7 @@ try {
     $fail = @($results | Where-Object { -not $_.Pass }).Count
     Write-Host "=================== $pass passed, $fail failed ==================="
     if ($fail -gt 0) { exit 1 }
-    Remove-TestDirs
+    Remove-TestDir
     exit 0
 }
 catch {

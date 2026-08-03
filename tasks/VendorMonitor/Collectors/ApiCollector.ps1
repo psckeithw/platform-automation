@@ -194,7 +194,7 @@ function Invoke-ApiCollector {
 
     if (-not $paged.Success) {
         $err = "ApiCollector[$vendorName/$productName]: HTTP $($paged.StatusCode) after $($paged.Pages) page(s) - $($paged.Error)"
-        Write-VendorResultLine -Vendor $vendorName -Product $productName -Url $url -HttpStatus $paged.StatusCode -Count 0 -DurationMs $elapsedMs -Level ERROR -Error $err
+        Write-VendorResultLine -Vendor $vendorName -Product $productName -Url $url -HttpStatus $paged.StatusCode -Count 0 -DurationMs $elapsedMs -Level ERROR -ErrorMessage $err
         throw $err
     }
 

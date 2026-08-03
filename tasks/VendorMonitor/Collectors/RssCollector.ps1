@@ -1,4 +1,4 @@
-# RssCollector.ps1 - RSS/Atom feed collector (FUTURE STUB).
+﻿# RssCollector.ps1 - RSS/Atom feed collector (FUTURE STUB).
 #
 # This file is dot-sourced by Run.ps1 when a vendor entry declares
 # Collector = 'RssCollector'. It defines Invoke-RssCollector so the
@@ -39,6 +39,10 @@ function Invoke-RssCollector {
         [Parameter(Mandatory)] [object]$Product,
         [Parameter(Mandatory)] [object]$Settings
     )
+    # Settings is part of the dispatcher contract; the stub does
+    # not use it yet. Mark referenced so PSScriptAnalyzer does not
+    # warn about an unused parameter in the future collector.
+    [void]$Settings
     $vendorName  = [string]$Vendor.Vendor
     $productName = [string]$Product.Product
     throw "NotImplemented: RssCollector is a future collector (vendor=$vendorName product=$productName). See tasks/VendorMonitor/Collectors/RssCollector.ps1 for the implementation outline."

@@ -82,6 +82,15 @@ stages:
               # Try to read the prior state. If the branch or file
               # does not exist (cold start), do nothing - Run.ps1
               # will treat the run as a baseline.
+              #
+              # NOTE: the backtick before ':' is a PowerShell
+              # string escape so $path is not parsed as a
+              # scope-qualified variable. This works on pwsh 7 on
+              # Linux (ubuntu-latest). It will NOT work on Windows
+              # PowerShell 5.1 - if a self-hosted Windows agent is
+              # ever added, change this to a single-quoted string:
+              #   git show "origin/$branch`:$path"
+              #   -> git show 'origin/$branch':$path
               $rc = (git show "origin/$branch`:$path" 2>$null | Tee-Object -FilePath $tmp.FullName)
               if ($LASTEXITCODE -eq 0) {
                 New-Item -ItemType Directory -Path (Split-Path -Path $path -Parent) -Force | Out-Null
@@ -177,4 +186,8 @@ stages:
               # Return to main so any post-step sees the expected branch.
               git checkout main
             displayName: Commit updated state to ${{ variables.stateBranch }}
+            # condition: always() is intentional so the run still
+            # produces a state artifact + commit even when Run.ps1
+            # failed mid-way. Tighten post-MVP with a "success"
+            # sentinel file that Run.ps1 writes only on clean exit.
             condition: always()
