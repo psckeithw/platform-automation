@@ -1,14 +1,15 @@
 {
   "Vendors": [
     {
-      "Vendor": "RLDatix",
+      "Vendor": "Ecteon",
       "Enabled": true,
-      "Collector": "ApiCollector",
+      "Collector": null,
+      "Script": "tasks/VendorMonitor/Collectors/Overrides/Invoke-EcteonCollector.ps1",
       "Products": [
         {
-          "Product": "IntelligentContract",
-          "Url": "https://rldatix-public.zendesk.com/api/v2/help_center/en-us/sections/19851648629532/articles.json?sort_by=created_at&sort_order=desc&per_page=100",
-          "ItemsPath": "articles",
+          "Product": "Contraxx",
+          "Url": "https://www.ecteon.com/",
+          "ItemsPath": "",
           "FieldMap": {
             "Id": "id",
             "Title": "title",

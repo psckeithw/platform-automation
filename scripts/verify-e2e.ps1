@@ -72,13 +72,13 @@ try {
     Remove-TestDir
     $rc = Invoke-Run -ExtraArgs @('-Baseline')
     $sum = Read-Summary
-    $ok1 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.items -eq 105) -and ($sum.summary.counts.baseline -eq 105) -and ($sum.summary.counts.new -eq 0) -and ($sum.summary.counts.errors -eq 0)
+    $ok1 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.items -eq 5) -and ($sum.summary.counts.baseline -eq 5) -and ($sum.summary.counts.new -eq 0) -and ($sum.summary.counts.errors -eq 0)
     Add-Result 'Cold start = baseline' $ok1 "exit=$rc items=$($sum.summary.counts.items) baseline=$($sum.summary.counts.baseline) new=$($sum.summary.counts.new)"
 
     # ---------- Scenario 2: identical second run = all UNCHANGED ----------
     $rc = Invoke-Run
     $sum = Read-Summary
-    $ok2 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.unchanged -eq 105) -and ($sum.summary.counts.new -eq 0) -and ($sum.summary.counts.changed -eq 0)
+    $ok2 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.unchanged -eq 5) -and ($sum.summary.counts.new -eq 0) -and ($sum.summary.counts.changed -eq 0)
     Add-Result 'Identical second run = all UNCHANGED' $ok2 "exit=$rc unchanged=$($sum.summary.counts.unchanged) new=$($sum.summary.counts.new) changed=$($sum.summary.counts.changed)"
 
     # ---------- Scenario 3: hash mutation = 1 CHANGED ----------
@@ -93,7 +93,7 @@ try {
     $map | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile
     $rc = Invoke-Run
     $sum = Read-Summary
-    $ok3 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.changed -eq 1) -and ($sum.summary.counts.unchanged -eq 104)
+    $ok3 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.changed -eq 1) -and ($sum.summary.counts.unchanged -eq 4)
     Add-Result 'Hash mutation = 1 CHANGED' $ok3 "exit=$rc changed=$($sum.summary.counts.changed) unchanged=$($sum.summary.counts.unchanged)"
 
     # ---------- Scenario 4: state entry removal = 1 NEW ----------
@@ -105,7 +105,7 @@ try {
     $map | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile
     $rc = Invoke-Run
     $sum = Read-Summary
-    $ok4 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.new -eq 1) -and ($sum.summary.counts.unchanged -eq 104)
+    $ok4 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.new -eq 1) -and ($sum.summary.counts.unchanged -eq 4)
     Add-Result 'State entry removal = 1 NEW' $ok4 "exit=$rc new=$($sum.summary.counts.new) unchanged=$($sum.summary.counts.unchanged)"
 
     # ---------- Scenario 5: per-vendor isolation with a broken vendor ----------

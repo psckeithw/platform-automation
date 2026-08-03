@@ -251,11 +251,13 @@ try {
             $safeProduct = ConvertTo-SafeFileName -Name $item.Product
             $safeId      = ConvertTo-SafeFileName -Name ([string]$item.Id)
             $file = Join-Path -Path $outDir -ChildPath "$safeVendor-$safeProduct-$safeId.html"
-            Set-Content -LiteralPath $file -Value $body -Encoding utf8
+            $docTitle = "$item.Vendor / $item.Product - $($item.Title)"
+            $doc = ConvertTo-HtmlDocument -Body $body -Title $docTitle -SourceUrl ([string]$item.SourceUrl) -DetectedAt $generatedAt
+            Set-Content -LiteralPath $file -Value $doc -Encoding utf8
             $captured++
         }
         if ($captured -gt 0) {
-            Write-Log -Message "captured $captured raw HTML file(s) (cap $maxRaw)" -Level INFO
+            Write-Log -Message "captured $captured styled HTML file(s) (cap $maxRaw)" -Level INFO
         }
     }
 

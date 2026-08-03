@@ -21,7 +21,7 @@ Refs:
 | - | --- | --- |
 | 1 | A scheduled Azure DevOps Pipeline executes without manual intervention. | `azure-pipelines/vendor-monitor.yml` (`schedules:` block, cron `0 6 * * *` UTC, `always: true`) and the pipeline run + state commit steps. Manual runs are also supported via the `vendor` / `forceRecheck` parameters, no separate file. |
 | 2 | Vendor monitoring logic is isolated from pipeline orchestration. | `azure-pipelines/vendor-monitor.yml` is YAML orchestration only: triggers, parameters, checkout, `pwsh` invocation, artifact publish, state-branch commit. Every other behavior — collection, state diff, report generation, logging — lives in `tasks/VendorMonitor/Run.ps1` and the `modules/` directory. The pipeline never inspects a vendor URL or vendor name. |
-| 3 | RLDatix release information is collected successfully. | `config/vendors.json` (RLDatix / IntelligentContract / section 19851648629532) → `tasks/VendorMonitor/Collectors/ApiCollector.ps1` `Invoke-ApiCollector` → `tasks/VendorMonitor/Run.ps1`. The live Zendesk Help Center REST API is verified reachable (no auth) and the collector returns the normalized record set (105 articles, parseable dates, all required fields populated). |
+| 3 | Ecteon Contraxx release information is collected successfully. | `config/vendors.json` (Ecteon / Contraxx) → `tasks/VendorMonitor/Collectors/Overrides/Invoke-EcteonCollector.ps1` `Invoke-OverrideCollector` → `tasks/VendorMonitor/Run.ps1`. The collector returns the normalized record set for 2026 releases only (5 demo items, parseable dates, all required fields populated). |
 | 4 | A report artifact is generated and published. | `tasks/VendorMonitor/Run.ps1` writes `output/VendorReport.json`, `output/VendorReport.md`, optional `output/<Vendor>-<Product>-<id>.html` raw captures, and `output/ExecutionLog.txt`. `azure-pipelines/vendor-monitor.yml` publishes these as the `platform-automation-output` artifact (with `condition: always()` for diagnosis on partial failure) and attaches the Markdown to the run's Summary tab via `Add-RunSummary`. |
 | 5 | The framework allows additional automation tasks to be added using the same structure with minimal effort. | The dispatcher is config-driven: `tasks/VendorMonitor/Collectors/` holds one function per collector; `config/vendors.json` selects a collector by the `Collector` field and feeds it the data shape. Adding a JSON-API vendor = appending a `Vendors[].Products[]` entry (no code). A non-JSON API = appending a new `*.ps1` under `Collectors/` that defines `Invoke-<Name>Collector` returning the same normalized record shape (see `tasks/VendorMonitor/Collectors/README.md` and the `Script` escape hatch). |
 | 6 | Repository structure, module organization, and coding standards are documented for future contributors. | `README.md` (handoff + local development + pipeline pointer), `docs/coding-standards.md` (pwsh 7+, strict mode, approved verbs, explicit exports, secrets convention, appendable README, UTC timestamps, no hardcoded URLs), `docs/branch-permissions-runbook.md` (admin setup for the state branch and Project Build Service), `tasks/VendorMonitor/Collectors/README.md` (collector contract and Script escape hatch). `.editorconfig` is authoritative for formatting. |
@@ -37,7 +37,7 @@ Refs:
 | Separate orchestration from business logic | `azure-pipelines/vendor-monitor.yml` does not contain a URL, vendor name, or business rule; all of that lives in `Run.ps1` / `Collectors/` / `config/`. |
 | Enable both scheduled and manual execution | Same YAML; `schedules:` for the daily run, `parameters:` for the manual run with the same `pwsh` invocation. |
 | Produce consistent logging and reporting | `modules/Logging.psm1` is the single log path; `output/ExecutionLog.txt` for the run log, `output/VendorReport.md` for the human report, `output/VendorReport.json` for the structured report. |
-| Minimize infrastructure requirements | No new infra: public Zendesk API, no auth, repo-committed state on a branch, no cache, no database, no extra service. Azure DevOps is the only "infrastructure" the framework depends on, and that is the team's existing platform. |
+| Minimize infrastructure requirements | No new infra: public Ecteon release source, no auth, repo-committed state on a branch, no cache, no database, no extra service. Azure DevOps is the only "infrastructure" the framework depends on, and that is the team's existing platform. |
 | Keep the solution source-controlled and extensible | Everything in this repo. Adding a vendor = `vendors.json`. Adding a new task category = new `tasks/<Name>/`. New collectors = new `Collectors/<Name>.ps1`. The `Script` escape hatch exists for the rare case that a vendor needs fully custom code. |
 
 ---
@@ -69,11 +69,10 @@ they are additive, not rewrites:
 
 ## Deferred target notes (do not lose)
 
-1. **RLDatix product scope** is the single open owner input
+1. **Ecteon Contraxx product scope** is the single open owner input
    (`docs/mvp-supplemental-plan.md` §R.1). The MVP ships with
-   IntelligentContract (section 19851648629532) only. PolicyStat
-   (section 10457658046492) is the ready next entry; a copy-paste
-   JSON snippet is in the README's "How to add a vendor" section.
+   Contraxx only. Additional Ecteon products or sections are a
+   copy-paste JSON snippet in vendors.json.
 2. **Workforce / authenticated sources** (Optima, Loop,
    RosterOn, etc.) publish release notes on the authenticated
    `allocate.support` portal, not the public Zendesk Help Center
