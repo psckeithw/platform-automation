@@ -12,7 +12,7 @@ This document does **not** restate the brief. It records the **delta** — the d
 
 | # | Topic | Brief said / implied | Decision (delta) | Rationale |
 |---|-------|----------------------|------------------|-----------|
-| 1 | Change-detection persistence | "Change Detected (Yes/No)" required, but DB is a Non-Goal | **Pipeline-artifact `state/vendor-state.json`** as the simple default, behind a swappable `State.psm1` interface. **Owner may opt into repo-committed state** (more durable — see §Q1). | Honors "no DB / minimal infra"; artifact path needs **no repo write permission**; interface makes repo-commit/Blob/DB a later drop-in |
+| 1 | Change-detection persistence | "Change Detected (Yes/No)" required, but DB is a Non-Goal | **DECIDED: repo-committed `state/vendor-state.json`**, pushed to a dedicated `vendor-state` branch by the pipeline, behind a swappable `State.psm1` interface (see §Q1). | Zero new infra + fully source-controlled (both brief goals); git history is a free audit/change log; no artifact-retention/cache eviction risk; owner is a collection admin so repo write + branch config are non-issues; Blob is a later drop-in via the interface |
 | 2 | RLDatix collection | "Public HTML page" implied as likely path | **Zendesk Help Center public REST API** (no auth) | Verified live; satisfies "Official API first"; far more robust than scraping |
 | 3 | Runtime | Unspecified | **PowerShell 7 (`pwsh`) on `ubuntu-latest`** | Confirmed: pwsh, runs with other pwsh; zero infra |
 | 4 | Auth/secrets | `Graph.psm1` module implied auth work | **None for MVP** — all sources public; convention documented (§L) | Confirmed public; defers Graph/auth; documenting the convention prevents a bad first precedent |
@@ -67,7 +67,7 @@ platform-automation/
 │           ├── ApiCollector.ps1
 │           ├── RssCollector.ps1   # stub: NotImplemented (documented future)
 │           └── HtmlCollector.ps1  # stub: NotImplemented (documented future)
-├── state/                 # gitignored if artifact-mode; committed if repo-mode (§Q1)
+├── state/                 # vendor-state.json committed to the vendor-state branch (§Q1)
 ├── output/                # gitignored; generated artifacts (.gitkeep)
 ├── docs/
 │   ├── coding-standards.md
@@ -159,7 +159,7 @@ Flow: import framework → `Start-TaskLog` → load config/settings, filter `Ena
 - **VendorReport.md** — run header + counts, table of NEW/CHANGED (Vendor, Product, Published, Title, Status, URL), short excerpt. Covers the brief's full field set.
 - **Raw HTML** (optional; `CaptureRawHtml=true`) — `RLDatix-IntelligentContract-<id>.html` up to `MaxRawItems` for traceability.
 - **ExecutionLog.txt** — full run log per Logging Standards.
-- **vendor-state.json** — persisted for next run's diff (published as its own artifact, or committed in repo-mode per §Q1).
+- **vendor-state.json** — written to `state/` and committed to the `vendor-state` branch for the next run's diff (§Q1). Also published as a run artifact for convenience/inspection.
 
 ---
 
@@ -168,7 +168,7 @@ Flow: import framework → `Start-TaskLog` → load config/settings, filter `Ena
 - Triggers: `schedules` (cron daily `0 6 * * *` UTC, `always: true`) + manual; `trigger: none` (scheduled job, not a build).
 - Parameters (kept minimal): `vendor` (dropdown: `All` + one per configured vendor) and `forceRecheck` (boolean, default `false`) → forwarded to `Run.ps1`.
 - Pool: `ubuntu-latest`, `pwsh: true`.
-- Steps: (1) checkout; (2) obtain previous state (artifact download of latest successful `platform-automation-state`, `continueOnError: true` for cold start — or `git` checkout if repo-mode per §Q1); (3) `pwsh ./tasks/VendorMonitor/Run.ps1 ...` writing to `$(Build.ArtifactStagingDirectory)/output`; (4) publish `platform-automation-output` (`condition: always()`); (5) persist state (publish `platform-automation-state`, or commit-back with `[skip ci]` in repo-mode).
+- Steps: (1) `checkout` with `persistCredentials: true`; (2) read previous state from the `vendor-state` branch (fetch/checkout `state/vendor-state.json`; cold start = branch/file absent → baseline); (3) `pwsh ./tasks/VendorMonitor/Run.ps1 ...` writing output to `$(Build.ArtifactStagingDirectory)/output` and updating `state/vendor-state.json`; (4) publish `platform-automation-output` (`condition: always()`); (5) commit + push updated state to the `vendor-state` branch with message `chore(state): vendor monitor update [skip ci]` (skips retrigger). State is also published as an artifact for inspection.
 - **Visibility (zero-infra, within non-goals — no Teams/email):** the report is attached to the run's **Summary tab** via `##vso[task.addattachment type=Distributedtask.Core.Summary;name=VendorReport;]`, and a **warning badge** is raised on NEW detections via `##vso[task.logissue type=warning]` so the run list draws the eye without any download.
 - Per-vendor resilience inside PowerShell; pipeline fails only on framework-level error. Cold start ⇒ baseline + first state persist.
 
@@ -219,7 +219,8 @@ Azure Functions, Durable Functions, MCP, AI summarization, database storage, bro
 ## P. Assumptions
 - ADO project can schedule pipelines and publish/download pipeline artifacts on default hosted agents.
 - Zendesk public API stays anonymous-accessible (verified 2026-08-02).
-- `output/` staged via `Build.ArtifactStagingDirectory`; `state/` at repo root for local/pipeline parity.
+- `output/` staged via `Build.ArtifactStagingDirectory`; `state/vendor-state.json` lives on the `vendor-state` branch (local runs read/write it in the working tree and skip the push).
+- Build-service identity is granted **Contribute** on the repo and can push to the `vendor-state` branch (owner is a collection admin — confirmed available).
 - "Product" derives from config per section (PolicyStat addable via config).
 
 ---
@@ -228,19 +229,20 @@ Azure Functions, Durable Functions, MCP, AI summarization, database storage, bro
 
 Both assessments were written independently and **agree** on: Zendesk public API as tier-1 source, config-driven generic collectors with a per-vendor `Script` escape hatch, `ubuntu-latest` + pwsh 7, no-auth/public MVP, MVP-only scaffold (drop extra pipelines/task folders/`Graph.psm1`), per-vendor `try/catch`, daily 06:00 UTC schedule, and the deferred roadmap. Refinements adopted from it into this plan:
 
-- **Q1 — State persistence (the one real divergence).** This plan defaults to **artifact-based** state (no repo permission needed → simplest, per "keep it simple first"). The second assessment makes a **valid durability critique**: artifact download couples runs and breaks if a run fails before publishing; it recommends **repo-committed `state/vendor-state.json`** (git history *is* the change log). Both live behind the same `State.psm1` interface, so this is a config choice, not a rewrite. **Owner input needed:** does the build-service identity have (or can it get) **Contribute** on the repo, and is `main` branch-policy-protected? If yes → switch to repo-commit (more durable); if no → keep artifact default. *Recommendation: keep artifact for the very first iteration, migrate to repo-commit once permissions are confirmed.*
+- **Q1 — State persistence — DECIDED: repo-committed state (the second assessment's recommendation).** The owner is a DevOps **collection admin**, so the only reason to prefer the artifact approach (avoiding repo write permission) does not apply. Repo-commit wins on the brief's own goals: zero new infrastructure, fully source-controlled, and git history becomes a free release-change audit log; it also avoids artifact-retention/cache eviction that can cause false "NEW" spam. **Implementation:** `state/vendor-state.json` is committed to a dedicated **`vendor-state` branch** (not `main`, so no branch-policy friction and no state churn on `main`); pipeline checks out with `persistCredentials: true` and pushes with `[skip ci]`; grant the Project Build Service **Contribute** on the repo. Because everything sits behind the `State.psm1` interface, migrating to Azure Blob later remains a single-module change if write frequency ever outgrows git.
 - **Q2 — Change detection → SHA-256 content hash** of normalized `Vendor|Product|Title|PublishedDate|Url`. Adopted (replaces my Zendesk-specific `updated_at` compare) because it is collector-agnostic and future-proofs RSS/HTML. Stable `Id` still used as the record key when available.
 - **Q3 — Declarative `ApiCollector` + `ItemsPath`/`FieldMap`** and brief-matching collector names (`ApiCollector`/`RssCollector`/`HtmlCollector`). Adopted — makes *any* JSON API onboard by JSON alone, better satisfying Principle #4 at negligible extra cost.
 - **Q4 — Extra visibility channels** (Summary-tab attachment + warning-badge on NEW; exit 0 for NEW, exit 1 for framework errors only). Adopted — zero infra, respects the no-notification non-goal.
 - **Q5 — Testing / PR-validation: intentionally NOT adopted for MVP.** The second assessment recommends `pr-validation.yml` (PSScriptAnalyzer + Pester smoke tests) and a `tests/` folder. This **conflicts with the owner's explicit "defer testing" decision** (§A#6), so it is deferred. It remains the correct enforcement path when the owner wants it — add `pr-validation.yml` + `tests/` post-MVP.
 - **Also adopted:** fold `Utilities.psm1` into `Common.psm1`; drop `environments.json`; document the secrets convention now (all consistent with "keep it simple" and the second assessment's D7/D9/D10).
 
-**Net:** this supplement now incorporates every non-conflicting improvement from the second assessment. The only open owner decision is **Q1 (state backend)**; everything else is locked and implementation-ready.
+**Net:** this supplement now incorporates every non-conflicting improvement from the second assessment. **Q1 (state backend) is now decided — repo-committed state on a `vendor-state` branch.** Everything is locked and implementation-ready.
 
 ---
 
 ## R. Open Owner Inputs (only true blockers)
 1. **RLDatix product scope** — which products/sections to monitor (IntelligentContract `19851648629532` is the working default; PolicyStat `10457658046492` optional), and confirmation the public Zendesk KB is the intended source vs. the authenticated support portal.
-2. **State backend (Q1)** — artifact (default, no permissions) vs. repo-commit (more durable, needs build-service Contribute + non-protected branch).
+
+*State backend (formerly open) is now decided — repo-committed state on the `vendor-state` branch (§Q1). Admin action required at implementation time: grant the Project Build Service **Contribute** on the repo.*
 
 Everything else defaults to the recommendations above.
