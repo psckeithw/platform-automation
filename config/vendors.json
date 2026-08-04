@@ -2,7 +2,7 @@
   "Vendors": [
     {
       "Vendor": "Ecteon",
-      "Enabled": true,
+      "Enabled": false,
       "Collector": null,
       "Script": "tasks/VendorMonitor/Collectors/Overrides/Invoke-EcteonCollector.ps1",
       "Products": [
@@ -17,6 +17,22 @@
             "SourceUrl": "html_url",
             "RawBody": "body"
           }
+        }
+      ]
+    },
+    {
+      "Vendor": "RLDatix",
+      "Enabled": true,
+      "Collector": null,
+      "Script": "tasks/VendorMonitor/Collectors/Overrides/Invoke-RLDatixCollector.ps1",
+      "Products": [
+        {
+          "Product": "intelligentcontract - ReleaseNote",
+          "SectionId": "19851648629532"
+        },
+        {
+          "Product": "intelligentcontract - Announcement",
+          "SectionId": "19851690858140"
         }
       ]
     }
