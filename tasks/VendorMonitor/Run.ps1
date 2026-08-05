@@ -311,7 +311,6 @@ try {
     if (-not $Baseline -and -not $comparison.IsBaseline) {
         $newItems = @($tagged | Where-Object { $_.ChangeStatus -eq 'NEW' })
         if ($newItems.Count -gt 0) {
-            Import-Module -Name (Join-Path -Path '.' -ChildPath 'modules/AdoWorkItem.psm1') -Force -ErrorAction Stop
             foreach ($item in $newItems) {
                 try {
                     $title = [string]$item.Title
