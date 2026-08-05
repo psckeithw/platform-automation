@@ -52,7 +52,7 @@ Set-StrictMode -Version Latest
         throw "Import-Framework: modules directory not found at '$ModulesPath'."
     }
 
-    $modules = @('Common.psm1', 'Logging.psm1', 'State.psm1', 'Html.psm1')
+    $modules = @('Common.psm1', 'Logging.psm1', 'State.psm1', 'Html.psm1', 'AdoWorkItem.psm1')
     foreach ($name in $modules) {
         $path = Join-Path -Path $ModulesPath -ChildPath $name
         if (Test-Path -LiteralPath $path -PathType Leaf) {
