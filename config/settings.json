@@ -13,5 +13,12 @@
   },
   "Run": {
     "BaselineOnColdStart": true
+  },
+  "Notify": {
+    "Enabled": true,
+    "WorkItemType": "User Story",
+    "CreateForStatuses": ["NEW", "CHANGED"],
+    "TopNTestMode": 1,
+    "AdditionalTags": []
   }
 }

@@ -23,7 +23,9 @@ param(
 
     [switch]$Baseline,
 
-    [switch]$ForceRecheck
+    [switch]$ForceRecheck,
+
+    [switch]$TestMode
 )
 
 $ErrorActionPreference = 'Stop'
@@ -53,6 +55,20 @@ try {
     $vendorsRaw = Get-Config -Path $ConfigPath -RequiredKeys 'Vendors'
     if ($null -eq $vendorsRaw.Vendors -or @($vendorsRaw.Vendors).Count -eq 0) {
         throw "Get-Config: '$ConfigPath' has no Vendors entries."
+    }
+
+    # Test mode: top-N per section, force NEW, create work item,
+    # do NOT persist state. Intended for end-to-end debugging of the
+    # collector + notifier without waiting for a real release.
+    if ($TestMode) {
+        Write-Log -Message "TEST MODE: state will not be saved; notifier will create a work item for the first collected record" -Level WARN
+        if (-not ($settings.PSObject.Properties['Notify'])) {
+            $settings | Add-Member -NotePropertyName 'Notify' -NotePropertyValue ([pscustomobject]@{
+                Enabled = $true; TopNTestMode = 1; WorkItemType = 'User Story'; CreateForStatuses = @('NEW')
+            }) -Force
+        }
+        $settings.Notify.Enabled = $true
+        if (-not $settings.Notify.TopNTestMode) { $settings.Notify | Add-Member -NotePropertyName 'TopNTestMode' -NotePropertyValue 1 -Force }
     }
 
     $vendors = @($vendorsRaw.Vendors | Where-Object {
@@ -307,8 +323,60 @@ try {
         Write-Host "##vso[task.logissue type=warning]$msg"
     }
 
-    $stateFile = Save-CurrentState -StatePath $StatePath -State $comparison.NewState
-    Write-Log -Message "wrote state: $stateFile" -Level INFO
+    # ---------- Notify (ADO User Story for new/changed vendor releases) ----------
+    $notifyEnabled = $false
+    $notifyStatuses = @('NEW','CHANGED')
+    $workItemType = 'User Story'
+    $additionalTags = @()
+    if ($settings.Notify) {
+        if ($settings.PSObject.Properties['Notify.Enabled'])      { $notifyEnabled = [bool]$settings.Notify.Enabled }
+        if ($settings.Notify.WorkItemType)                        { $workItemType = [string]$settings.Notify.WorkItemType }
+        if ($settings.Notify.CreateForStatuses)                    { $notifyStatuses = @($settings.Notify.CreateForStatuses) }
+        if ($settings.Notify.AdditionalTags)                      { $additionalTags = @($settings.Notify.AdditionalTags) }
+    }
+
+    if ($TestMode) {
+        # Force every collected item to NEW so the notifier fires,
+        # even if the article is already in state.
+        $tagged = @($tagged | ForEach-Object {
+            $_ | Select-Object *, @{ Name='ChangeStatus'; Expression={ 'NEW' } }
+        })
+        $summary.counts.new = ($tagged | Where-Object { $_.ChangeStatus -eq 'NEW' }).Count
+    }
+
+    if ($notifyEnabled -and $tagged.Count -gt 0) {
+        $notifyItems = if ($TestMode) { @($tagged | Select-Object -First 1) } else { @($tagged | Where-Object { $_.ChangeStatus -in $notifyStatuses }) }
+        if ($notifyItems.Count -gt 0) {
+            $org  = Get-DotEnvValue -Name 'AZURE_DEVOPS_ORG'
+            $proj = Get-DotEnvValue -Name 'AZURE_DEVOPS_PROJECTS'
+            $pat  = Get-DotEnvValue -Name 'ADO_PAT'
+            if ([string]::IsNullOrEmpty($org) -or [string]::IsNullOrEmpty($proj) -or [string]::IsNullOrEmpty($pat)) {
+                Write-Log -Message "notify skipped: AZURE_DEVOPS_ORG/PROJECTS/ADO_PAT not set (env or .env)" -Level WARN
+            }
+            else {
+                foreach ($item in $notifyItems) {
+                    $result = New-RLDatixAlertWorkItem -Item $item -Org $org -Project $proj -Pat $pat -WorkItemType $workItemType -Tags $additionalTags
+                    if ($result.Success) {
+                        Write-Log -Message "work item created: id=$($result.Id) title='$($result.Title)' url=$($result.Url)" -Level INFO
+                        Write-Host "##vso[task.logissue type=warning]RLDatix alert: id=$($result.Id) $($result.Url)"
+                    }
+                    else {
+                        Write-Log -Message "work item FAILED: title='$($result.Title)' error=$($result.Error)" -Level ERROR
+                        Write-Host "##vso[task.logissue type=error]RLDatix alert failed: $($result.Error)"
+                    }
+                }
+            }
+        }
+    }
+
+    # ---------- Persist state (skipped in test mode) ----------
+    if ($TestMode) {
+        Write-Log -Message "TEST MODE: state file NOT updated" -Level WARN
+    }
+    else {
+        $stateFile = Save-CurrentState -StatePath $StatePath -State $comparison.NewState
+        Write-Log -Message "wrote state: $stateFile" -Level INFO
+    }
 
     Write-Log -Message "run done: NEW=$($summary.counts.new) CHANGED=$($summary.counts.changed) UNCHANGED=$($summary.counts.unchanged) BASELINE=$($summary.counts.baseline) RECHECK=$($summary.counts.rechecks) ERRORS=$($summary.counts.errors)" -Level INFO
 }

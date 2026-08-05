@@ -50,6 +50,10 @@ parameters:
     displayName: Force recheck (re-emit every record; still updates state)
     type: boolean
     default: false
+  - name: testMode
+    displayName: Test mode (top-1 per section, no state save, always notify)
+    type: boolean
+    default: false
 
 variables:
   - name: stateBranch
@@ -109,11 +113,15 @@ stages:
           - pwsh: |
               $vendorArg = @()
               if ("${{ parameters.vendor }}" -ne "All") {
-                $vendorArg = @("-Vendor", "${{ parameters.vendor }}")
+                  $vendorArg = @("-Vendor", "${{ parameters.vendor }}")
               }
               $forceArg = @()
               if ("${{ parameters.forceRecheck }}" -eq "True") {
-                $forceArg = @("-ForceRecheck")
+                  $forceArg = @("-ForceRecheck")
+              }
+              $testArg = @()
+              if ("${{ parameters.testMode }}" -eq "True") {
+                  $testArg = @("-TestMode")
               }
               $argList = @(
                 "-NoProfile"
@@ -122,7 +130,7 @@ stages:
                 "-SettingsPath", "./config/settings.json"
                 "-OutputPath", "${{ variables.outputDir }}"
                 "-StatePath", "./state"
-              ) + $vendorArg + $forceArg
+              ) + $vendorArg + $forceArg + $testArg
               & pwsh @argList
               if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             displayName: Run VendorMonitor
