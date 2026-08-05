@@ -67,7 +67,7 @@ function Add-Result {
     Write-Host "[$tag] $Scenario - $Detail"
 }
 
-try {
+try { $env:ADO_TEST_MODE='1'
     # ---------- Scenario 1: cold start = baseline ----------
     Remove-TestDir
     $rc = Invoke-Run -ExtraArgs @('-Baseline')
@@ -105,7 +105,7 @@ try {
     $map | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stateFile
     $rc = Invoke-Run
     $sum = Read-Summary
-    $ok4 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.new -eq 1) -and ($sum.summary.counts.unchanged -eq 4)
+    $ok4 = ($rc -eq 0) -and $sum -and ($sum.summary.counts.new -eq 1) -and ($sum.summary.counts.unchanged -eq 4) -and ($sum.items | Where-Object {$_.changeDetected -eq 'NEW'} | Select-Object -ExpandProperty workItemId)
     Add-Result 'State entry removal = 1 NEW' $ok4 "exit=$rc new=$($sum.summary.counts.new) unchanged=$($sum.summary.counts.unchanged)"
 
     # ---------- Scenario 5: per-vendor isolation with a broken vendor ----------

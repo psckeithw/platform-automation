@@ -62,6 +62,7 @@ variables:
     value: $(Build.ArtifactStagingDirectory)/output
   - name: stateFile
     value: state/vendor-state.json
+  - group: ado-pat
 
 stages:
   - stage: Run

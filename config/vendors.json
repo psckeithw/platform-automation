@@ -27,12 +27,7 @@
       "Script": "tasks/VendorMonitor/Collectors/Overrides/Invoke-RLDatixCollector.ps1",
       "Products": [
         {
-          "Product": "intelligentcontract - ReleaseNote",
-          "SectionId": "19851648629532"
-        },
-        {
-          "Product": "intelligentcontract - Announcement",
-          "SectionId": "19851690858140"
+"Product": "RL6"
         }
       ]
     }

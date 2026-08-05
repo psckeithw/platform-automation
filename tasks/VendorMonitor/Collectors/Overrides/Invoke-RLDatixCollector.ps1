@@ -1,119 +1,110 @@
-# Invoke-RLDatixCollector.ps1 - RLDatix public release announcement collector.
+# Invoke-RLDatixCollector.ps1 - RLDatix RL6 S3 XML release collector.
 #
-# Replaces the demo Ecteon/Contraxx placeholder with a real pull from the
-# public RLDatix knowledge base (Zendesk Help Center, no authentication).
-#
-# Two sections are monitored:
-#   19851648629532 - Release Notes
-#   19851690858140 - Announcements
-#
-# The Zendesk listing endpoint returns the most-recently-updated articles
-# first. For each article we emit one normalized record with:
-#   Vendor=RLDatix
-#   Product=intelligentcontract (or 'intelligentcontract - ReleaseNote' /
-#           'intelligentcontract - Announcement' so callers can tell them
-#           apart in reports and notifications)
-#   Id=Zendesk article id (used as the stable record key)
-#   Title=article.title
-#   PublishedDate=article.updated_at (ISO 8601 UTC)
-#   SourceUrl=article.html_url
-#   RawBody=article.body (the article HTML, optional)
-#
-# Test mode (-TopN 1): only the first record from each section is
-# returned. This is what the VendorMonitor -TestMode flag uses so the
-# notify path can be exercised end-to-end without waiting for a new
-# release.
+# Fetches the two public S3 XML feeds (Enhancements, Fixes), parses
+# them with [xml], groups rows by ReleaseNumber, and emits one
+# normalized record per version matching the Invoke-OverrideCollector
+# contract that Run.ps1 dispatches to.
 
 Set-StrictMode -Version Latest
 
-$Script:RLDatixSections = @(
-    @{ SectionId = '19851648629532'; Product = 'intelligentcontract - ReleaseNote' }
-    @{ SectionId = '19851690858140'; Product = 'intelligentcontract - Announcement' }
-)
-
 function Invoke-OverrideCollector {
     [CmdletBinding()]
-    [OutputType([object[]])]
     param(
         [Parameter(Mandatory)] [object]$Vendor,
         [Parameter(Mandatory)] [object]$Product,
-        [Parameter(Mandatory)] [object]$Settings,
-        [int]$TopN = 0
+        [Parameter(Mandatory)] [object]$Settings
     )
 
-    $vendorName = [string]$Vendor.Vendor
-    $sectionId  = [string]$Product.SectionId
+    # Settings are not used directly in this collector, but we keep the parameter
+    # to conform to the collector contract.
+    [void]$Settings
+
+    $vendorName  = [string]$Vendor.Vendor
     $productName = [string]$Product.Product
-
-    if ([string]::IsNullOrWhiteSpace($sectionId)) {
-        throw "RLDatixCollector[$vendorName/$productName]: SectionId is required."
-    }
-
-    $ua = 'platform-automation/1.0'
-    $timeout = 30
-    if ($Settings -and $Settings.Http) {
-        if ($Settings.Http.UserAgent)  { $ua = [string]$Settings.Http.UserAgent }
-        if ($Settings.Http.TimeoutSec) { $timeout = [int]$Settings.Http.TimeoutSec }
-    }
-
-    # Test mode cap: collector pulls only the first N articles from
-    # the section so the notifier can be exercised end-to-end without
-    # waiting for a real release. Honoured when Settings.Notify.TopNTestMode
-    # is a positive integer (Run.ps1 sets this when -TestMode is passed).
-    $topN = 0
-    if ($Settings -and $Settings.PSObject.Properties['Notify'] -and $Settings.Notify.PSObject.Properties['TopNTestMode']) {
-        $topN = [int]$Settings.Notify.TopNTestMode
-    }
-    if ($TopN -gt 0) { $topN = $TopN }
-
-    $perPage = if ($topN -gt 0) { $topN } else { 25 }
-    $base = "https://rldatix-public.zendesk.com/api/v2/help_center/en-us/sections/$sectionId/articles.json"
-    $url  = "$base`?per_page=$perPage&sort_by=updated_at&order=desc"
-
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $resp = Invoke-HttpGetWithRetry -Uri $url -Retries 3 -TimeoutSec $timeout -UserAgent $ua
-    $sw.Stop()
-    $elapsedMs = [long]$sw.Elapsed.TotalMilliseconds
 
-    if (-not $resp.Success) {
-        $err = "RLDatixCollector[$vendorName/$productName]: HTTP $($resp.StatusCode) - $($resp.Error)"
-        Write-VendorResultLine -Vendor $vendorName -Product $productName -Url $url -HttpStatus $resp.StatusCode -Count 0 -DurationMs $elapsedMs -Level ERROR -ErrorMessage $err
-        throw $err
+    $baseUrl = 'https://elasticbeanstalk-us-east-1-420057813367.s3.amazonaws.com/Release_Notes/RL6/release_notes_files/xml'
+    $landingPage = 'https://elasticbeanstalk-us-east-1-420057813367.s3.amazonaws.com/Release_Notes/RL6/RL6_releasenotes.html'
+    $feeds = @(
+        @{ Url = "$baseUrl/Enhancements%20and%20Changes.xml"; Label = 'Enhancements' }
+        @{ Url = "$baseUrl/Fixes.xml";                       Label = 'Fixes' }
+    )
+
+    $httpTimeout = if ($Settings.Http -and $Settings.Http.TimeoutSec) { [int]$Settings.Http.TimeoutSec } else { 30 }
+    $httpRetries = if ($Settings.Http -and $Settings.Http.Retries)   { [int]$Settings.Http.Retries   } else { 3 }
+    $userAgent   = if ($Settings.Http -and $Settings.Http.UserAgent) { [string]$Settings.Http.UserAgent } else { 'platform-automation/1.0' }
+
+    $allRows = New-Object System.Collections.Generic.List[object]
+    $httpStatus = 200
+    foreach ($feed in $feeds) {
+        $resp = Invoke-HttpGetWithRetry -Uri $feed.Url -Retries $httpRetries -TimeoutSec $httpTimeout -UserAgent $userAgent
+        if (-not $resp.Success) {
+            $httpStatus = $resp.StatusCode
+            Write-Log -Message "RLDatix collector: $($feed.Label) feed returned HTTP $($resp.StatusCode): $($resp.Error)" -Level WARN
+            continue
+        }
+        try {
+            $xml = [xml]$resp.Content
+            $rows = @($xml.ROWSET.ROW)
+            $label = $feed.Label
+            foreach ($row in $rows) {
+                $rn = [string]$row.ReleaseNumber
+                if ([string]::IsNullOrWhiteSpace($rn)) { continue }
+                $allRows.Add([pscustomobject]@{
+                    ReleaseNumber = $rn.Trim()
+                    SummaryTitle  = ([string]$row.SummaryTitle).Trim()
+                    Summary       = ([string]$row.Summary).Trim()
+                    Product       = ([string]$row.Product).Trim()
+                    Functionality = ([string]$row.Functionality).Trim()
+                    RlRefNumber   = ([string]$row.RLRefNumber).Trim()
+                    Feed          = $label
+                })
+            }
+        }
+        catch {
+            Write-Log -Message "RLDatix collector: failed to parse $($feed.Label) XML: $($_.Exception.Message)" -Level ERROR
+        }
     }
 
-    try {
-        $body = $resp.Content | ConvertFrom-Json -ErrorAction Stop
-    } catch {
-        $err = "RLDatixCollector[$vendorName/$productName]: invalid JSON - $($_.Exception.Message)"
-        Write-VendorResultLine -Vendor $vendorName -Product $productName -Url $url -HttpStatus $resp.StatusCode -Count 0 -DurationMs $elapsedMs -Level ERROR -ErrorMessage $err
-        throw $err
-    }
-
-    $articles = @($body.articles)
-    if ($topN -gt 0 -and $articles.Count -gt $topN) {
-        $articles = $articles[0..($topN - 1)]
-    }
+    $grouped = $allRows.ToArray() | Group-Object -Property ReleaseNumber
 
     $records = New-Object System.Collections.Generic.List[object]
-    foreach ($a in $articles) {
-        $published = ''
-        if ($a.updated_at) {
-            try {
-                $published = ([datetime]$a.updated_at).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
-            } catch { $published = [string]$a.updated_at }
-        }
+    foreach ($g in $grouped) {
+        $version = $g.Name
+        $enhancements = @($g.Group | Where-Object { $_.Feed -eq 'Enhancements' })
+        $fixes        = @($g.Group | Where-Object { $_.Feed -eq 'Fixes' })
+        $modules = $g.Group |
+            ForEach-Object { $_.Product } |
+            Where-Object { $_ -and $_ -ne ',' } |
+            ForEach-Object { $_ -split ',' } |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ } |
+            Sort-Object -Unique
+
+        $enhCount = $enhancements.Count
+        $fixCount = $fixes.Count
+        $moduleStr = if ($modules.Count -gt 0) { $modules -join ', ' } else { '' }
+
+        $title = "RL6 $version"
+        $id = "rl6-$version"
+        $summaryHtml = "<p><strong>RL6 $version</strong> &mdash; $enhCount enhancement(s), $fixCount fix(es)</p>"
+        if ($moduleStr) { $summaryHtml += "<p>Affected modules: $moduleStr</p>" }
+        if ($version -match '^\d+\.\d+\.\d+$') { $summaryHtml += '<p><em>Hotfix release.</em></p>' }
 
         $records.Add([pscustomobject]@{
             Vendor        = $vendorName
             Product       = $productName
-            Id            = [string]$a.id
-            Title         = [string]$a.title
-            PublishedDate = $published
-            SourceUrl     = [string]$a.html_url
-            RawBody       = [string]$a.body
+            Id            = $id
+            Title         = $title
+            PublishedDate = ''
+            SourceUrl     = $landingPage
+            RawBody       = $summaryHtml
         })
     }
 
-    Write-VendorResultLine -Vendor $vendorName -Product $productName -Url $url -HttpStatus $resp.StatusCode -Count $records.Count -DurationMs $elapsedMs -Level INFO
+    $sw.Stop()
+    $elapsedMs = [long]$sw.Elapsed.TotalMilliseconds
+
+    Write-VendorResultLine -Vendor $vendorName -Product $productName -Url $landingPage -HttpStatus $httpStatus -Count $records.Count -DurationMs $elapsedMs -Level INFO
     return $records.ToArray()
 }
