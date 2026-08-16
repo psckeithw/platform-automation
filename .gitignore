@@ -23,3 +23,4 @@ state/vendor-state.json
 *.user
 *.suo
 .env
+.azuredevops/KEY-VAULT-SECRETS.md

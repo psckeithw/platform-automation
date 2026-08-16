@@ -30,6 +30,18 @@
 "Product": "RL6"
         }
       ]
+    },
+    {
+      "Vendor": "OneSpan",
+      "Enabled": true,
+      "Collector": null,
+      "Script": "tasks/VendorMonitor/Collectors/Overrides/Invoke-OneSpanCollector.ps1",
+      "Products": [
+        {
+          "Product": "OneSpan Sign",
+          "Url": "https://docs.onespan.com/docs/onespan-sign-release-notes"
+        }
+      ]
     }
   ]
 }
